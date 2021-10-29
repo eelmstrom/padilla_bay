@@ -8,8 +8,9 @@ source('R/ggplot_theme.R')
 ## set directory locations
 tank_test <- here("minidot_data/tank_test")
 tank_test_drift <- here("minidot_data/tank_test_drift")
+drift_test <- here("minidot_data/drift_test2")
 
-drift <- read_csv(file.path(tank_test_drift, "tank_test_drift.csv"))
+drift <- read_csv(file.path(drift_test, "drift_test.csv"))
 
 
 ## Bayview sensor
