@@ -10,7 +10,9 @@ library(here)
 library(tidyverse)
 library(lubridate)
 library(wql)
+ec2pss(36074*0.001, 13.66, p = 0)
 
+ec2pss(47997.66153*0.001, 26.16, p = 0)
 
 #Set directories
 files <- here("data/misc_sensor_tests")
@@ -23,13 +25,20 @@ files <- here("data/misc_sensor_tests")
 hobo <- dir(files,pattern = "*_test.csv")
 
 hobo_dat <- hobo %>%
-  map(~ read_csv(file.path(files, .),skip = 1, col_types = "_??___"))%>% 
+  map(~ read_csv(file.path(files, .),skip = 1, col_types = "_??__?"))%>% 
   reduce(full_join, by='Date Time, GMT-08:00')
 
 hobo_dat <- hobo_dat[1:115,]# have to trim to ysi entries
 colnames(hobo_dat) <- c("datetime", 'SN_BO_21076249', 'SN_JL_21076247', 'SN_NIC_10745660','SN_SAC_10745661', 'SN_TS_21076248')# serial number/site for each conductivity logger
 
+colnames(hobo_dat) <- c("datetime", 'SN_BO_21076249', 'BO_sal',
+                        'SN_JL_21076247', 'JL_sal',
+                        'SN_NIC_10745660', 'NIC_sal', 
+                        'SN_SAC_10745661', 'SAC_sal',
+                        'SN_TS_21076248', 'TS_sal')
+
 hobo_dat #check 
+
 
 ####################################################################################
 #--------- SECTION 1B: Read in raw YSI csv file (Just conductivity) ----------
@@ -37,12 +46,13 @@ hobo_dat #check
 
 # Read KOR raw conductivities
 ysi <- read_csv(file.path(files, "KorEXO_ysi_file.csv"),skip = 8)%>%
-  select(c("Date (MM/DD/YYYY)","Time (HH:mm:ss)","Cond uS/cm",'Temp C'))
+  select(c("Date (MM/DD/YYYY)","Time (HH:mm:ss)","Cond uS/cm",'Temp C', 'Sal psu'))
 ysi
 
-colnames(ysi) <- c('date','time', 'ysi_conductivity', 'temp')
+colnames(ysi) <- c('date','time', 'ysi_conductivity', 'temp','ysi_sal')
 
 ysi #check
+
 
 ####################################################################################
 #--------- SECTION 2: Combine and tidy data table ----------
@@ -52,6 +62,9 @@ ysi #check
 dat <- 
   bind_cols(ysi, hobo_dat)%>%
   select(-c(date, time))
+
+# SA_C logger first eleven data points are trash
+dat$SN_SAC_10745661[1:11]<- rep(NA, 11)
 
 # Tidy version (aka long version so you can group_by)
 long_dat <- dat %>%
@@ -77,26 +90,47 @@ lm_equation_coefs
 
 lm_equation_coefs <- lm_equation_coefs %>% separate(SerialNo, c('site', 'SerialNo'))
 
+#lm_equation_coefs <- read_csv(file.path(files, "conductivity_hoboequations2.csv"))
+
 
 ####################################################################################
 #--------- SECTION 4: Test equations before write out ----------
 #####################################################################################
 
-###### Quick check using the Blau Oyster sensor
+test_dat <- hobo %>%
+  map(~ read_csv(file.path(files, .),skip = 2,col_names = c('datetime', 'conductivity', 'temp', 'salinity'), col_types = "_???_?"))
+names(test_dat) <-  c("BO", 'JL', 'NIC', 'SAC', 'TS')
 
-# Correct BO conductivity sensor and compare to ysi
-dat$BO_cond_cor <- dat$SN_BO_21076249*lm_equation_coefs$slope[1]+lm_equation_coefs$intercept[1]
+test_dat <- map(test_dat, ~ .x %>%
+                 mutate(datetime=as.POSIXct(datetime, format = "%m/%d/%y %I:%M:%S %p"))%>%
+                  filter(datetime > as.POSIXct("2022-02-15 14:15:00"))%>%
+                  filter(datetime < as.POSIXct("2022-02-16 19:15:00")))
 
-plot(ysi_conductivity ~ BO_cond_cor, dat)
-summary(lm(ysi_conductivity ~BO_cond_cor, dat))
 
-# Calc ysi and BO salinity and compare
+par(mfrow=c(2,2), mgp=c(1.5,0.5,0), mar=c(4,3,3,1)) 
+for (j in 1:length(test_dat)) {
+  
+  site <- names(test_dat[j])
 
-dat$ysi_sal <- ec2pss(dat$ysi_conductivity*0.001, dat$temp, p = 0)
-dat$BO_sal <- ec2pss(dat$BO_cond_cor*0.001, dat$temp, p = 0) 
+  test_dat[[j]]$conductivity_cor <- as.numeric(lm_equation_coefs[lm_equation_coefs$site == site,4])*test_dat[[j]]$conductivity+as.numeric(lm_equation_coefs[lm_equation_coefs$site == site,5]) # use coefficients associated with matching serial number for conversion of raw data to PAR
+  
+  plot(test_dat[[j]]$conductivity~test_dat[[j]]$datetime, main = site, pch=21, ylab='Conductivity', xlab='time', ylim=c(0, 60000))
+  points(test_dat[[j]]$conductivity_cor~test_dat[[j]]$datetime, col = "blue", pch=21)
+  
+  test_dat[[j]]$salinity_cor <- ec2pss(test_dat[[j]]$conductivity_cor*0.001, test_dat[[j]]$temp, p = 0)
+  
+  plot(ysi$ysi_conductivity~test_dat[[j]]$conductivity, main = site, xlim=c(0, 36000), ylim=c(0, 36000))
+  points(ysi$ysi_conductivity~test_dat[[j]]$conductivity_cor, col ='blue')
+  abline(a = 0, b = 1, col = "green")
 
-plot(ysi_sal ~ BO_sal, dat)
-summary(lm(ysi_sal ~ BO_sal, dat))
+  # plot(test_dat[[j]]$salinity~test_dat[[j]]$datetime, main = site, pch=21, ylab='Salinity', xlab='time', ylim=c(0, 40))
+  # points(test_dat[[j]]$salinity_cor~test_dat[[j]]$datetime, col = "blue", pch=21)
+  # 
+  print(test_dat[[j]])
+  
+  
+} 
+
 
 ## V close. Success.
 

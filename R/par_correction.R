@@ -63,9 +63,9 @@ for (j in 1:length(hobo_dat)) {
   
   site <- names(hobo_dat[j])
 
-  hobo_dat[[j]]$date <- format(hobo_dat[[j]]$datetime, format = "%m/%d/%y")
-  
-  hobo_dat[[j]]$time <- format(as.POSIXlt(hobo_dat[[j]]$datetime, format='%H:%M:%S'), '%H:%M')
+  # hobo_dat[[j]]$date <- format(hobo_dat[[j]]$datetime, format = "%m/%d/%y")
+  # 
+  # hobo_dat[[j]]$time <- format(as.POSIXlt(hobo_dat[[j]]$datetime, format='%H:%M:%S'), '%H:%M')
   
   # Hobo fitting as exponential decay:
   hob <- hobo_dat[[j]]$intensity_lux
@@ -79,4 +79,6 @@ for (j in 1:length(hobo_dat)) {
   write_csv(hobo_dat[[j]], file.path(output, paste0(site,"_PARhobo_cor.csv")))
   
 } # END j FOR LOOP 
+
+
 
